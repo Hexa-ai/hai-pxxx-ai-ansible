@@ -45,6 +45,10 @@
     # Mettre à 'false' pour conserver les données existantes (tableaux de bord, etc.).
     clear_grafana_volume: true
 
+    # Option pour vider le volume PostgreSQL avant le déploiement.
+    # Mettre à 'false' pour conserver les données existantes.
+    clear_postgres_volume: true
+
   pre_tasks:
     - name: "Vérifier que le dossier de configuration source '{{ profile_name }}' existe"
       ansible.builtin.stat:
@@ -78,6 +82,37 @@
       become: true
       when:
         - grafana_volume_check.rc == 0 # Le volume existe
+
+    - name: "Vérifier si le volume PostgreSQL existe"
+      ansible.builtin.command: "podman volume inspect v_{{ postgres_container_name }}"
+      register: postgres_volume_check
+      changed_when: false
+      failed_when: false
+      become: true
+      when:
+        - clear_postgres_volume | bool
+        - "ansible_facts.services['container-' + postgres_container_name + '.service'] is defined"
+
+    - name: "Nettoyer et recréer le volume PostgreSQL (si demandé et existant)"
+      block:
+        - name: "Arrêter le service PostgreSQL pour nettoyer le volume"
+          ansible.builtin.systemd:
+            name: "container-{{ postgres_container_name }}"
+            state: stopped
+
+        - name: "Nettoyer et recréer le volume PostgreSQL"
+          ansible.builtin.shell: |
+            podman volume rm -f v_{{ postgres_container_name }}
+            podman volume create v_{{ postgres_container_name }}
+
+        - name: "Redémarrer le service PostgreSQL après nettoyage"
+          ansible.builtin.systemd:
+            name: "container-{{ postgres_container_name }}"
+            state: started
+      become: true
+      when:
+        - not postgres_volume_check.skipped | default(false)
+        - postgres_volume_check.rc == 0
 
   roles:
     - role: deploy_monitoring

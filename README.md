@@ -43,18 +43,28 @@ Le déploiement est basé sur un système de profils. Vous pouvez définir un pr
 
 Si aucun profil n'est spécifié, le profil `default` est utilisé. Le playbook ira chercher les fichiers de configuration dans le dossier correspondant (ex: `deploy/usine_A/`).
 
-### Gestion des Données Grafana
+### Gestion des Données des Volumes
 
-Par défaut, le playbook de déploiement est configuré pour **nettoyer complètement le volume de données de Grafana** (`v_grafana`) avant chaque exécution. Cette action supprime tous les tableaux de bord, sources de données et configurations que vous auriez pu créer manuellement via l'interface utilisateur de Grafana.
+Le playbook de déploiement offre des options pour nettoyer les volumes de données de certains services avant l'exécution.
 
-Cette approche garantit un déploiement "propre" à chaque fois, où l'état de Grafana est entièrement défini par les fichiers de provisioning de votre profil.
+#### Données Grafana
 
-#### Conserver les données Grafana
+Par défaut, le volume de données de Grafana (`v_grafana`) est **nettoyé** à chaque déploiement. Cette approche garantit un déploiement "propre" où l'état de Grafana est entièrement défini par les fichiers de provisioning.
 
-Si vous souhaitez effectuer un déploiement sans effacer les données existantes de Grafana (par exemple, pour conserver des tableaux de bord créés manuellement), vous pouvez désactiver ce comportement en utilisant l'extra-variable `clear_grafana_volume` :
+Pour conserver les données existantes (tableaux de bord, etc.), désactivez ce comportement avec l'option `clear_grafana_volume` :
 
 ```bash
 ansible-playbook -i inventory.ini deploy_playbook.yml -e "clear_grafana_volume=false"
+```
+
+#### Données PostgreSQL
+
+De la même manière, le volume de données de PostgreSQL (`v_postgres`) est nettoyé par défaut à chaque déploiement. Cela signifie que toutes les données des bases seront perdues.
+
+Pour conserver les données de la base de données lors d'un redéploiement, désactivez ce comportement avec l'option `clear_postgres_volume` : 
+
+```bash
+ansible-playbook -i inventory.ini deploy_playbook.yml -e "clear_postgres_volume=false"
 ```
 
 ---

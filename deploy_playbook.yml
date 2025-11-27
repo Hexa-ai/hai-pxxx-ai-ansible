@@ -41,6 +41,10 @@
     # Le chemin de base sera construit dynamiquement, ex: /etc/hai-gnsa-ai
     dest_base_dir: "/etc/hai-pxxx-ai"
 
+    # Option pour vider le volume Grafana avant le déploiement.
+    # Mettre à 'false' pour conserver les données existantes (tableaux de bord, etc.).
+    clear_grafana_volume: true
+
   pre_tasks:
     - name: "Vérifier que le dossier de configuration source '{{ profile_name }}' existe"
       ansible.builtin.stat:
@@ -52,6 +56,28 @@
       ansible.builtin.fail:
         msg: "Le dossier de configuration '{{ source_config_dir }}' n'a pas été trouvé. Veuillez le créer ou vérifier le nom du profil dans l'inventaire."
       when: not config_dir_stat.stat.exists
+
+    - name: Collecter les informations sur les services pour les handlers
+      ansible.builtin.service_facts:
+      when: ansible_facts.services is not defined
+
+    - name: "Vérifier si le volume Grafana existe"
+      ansible.builtin.command: "podman volume inspect v_{{ grafana_container_name }}"
+      register: grafana_volume_check
+      changed_when: false
+      failed_when: false # Ne pas échouer si le volume n'existe pas
+      become: true
+      when:
+        - clear_grafana_volume | bool
+        - "ansible_facts.services['container-' + grafana_container_name + '.service'] is defined"
+
+    - name: "Nettoyer et recréer le volume Grafana (si demandé et existant)"
+      ansible.builtin.shell: |
+        podman volume rm -f v_{{ grafana_container_name }}
+        podman volume create v_{{ grafana_container_name }}
+      become: true
+      when:
+        - grafana_volume_check.rc == 0 # Le volume existe
 
   roles:
     - role: deploy_monitoring
@@ -106,15 +132,18 @@
         name: container-nodered
         state: restarted
       become: true
+      when: "ansible_facts.services['container-nodered.service'] is defined"
 
     - name: Restart Grafana
       ansible.builtin.systemd:
         name: container-grafana
         state: restarted
       become: true
+      when: "ansible_facts.services['container-grafana.service'] is defined"
 
     - name: Restart Ignition
       ansible.builtin.systemd:
-        name: "container-{{ ignition_container_name }}"
+        name: container-ignition
         state: restarted
       become: true
+      when: "ansible_facts.services['container-ignition.service'] is defined"

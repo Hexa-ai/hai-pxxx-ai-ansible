@@ -1,0 +1,120 @@
+# ansible_deployment/playbook.yml
+---
+# ==============================================================================
+# ==                               AVERTISSEMENT                               ==
+# ==============================================================================
+# Cet outil est fourni gratuitement et en tant que logiciel open-source.
+# L'utilisateur est entièrement responsable de tester et de valider son
+# fonctionnement avant de l'utiliser dans un environnement de production.
+# L'auteur ou les contributeurs ne peuvent être tenus responsables de toute
+# perte de données, interruption de service ou autre dommage potentiel.
+- name: Déployer la configuration de monitoring
+  hosts: industrial_pcs
+  gather_facts: true
+
+  vars:
+
+    # --- Logique de Profil de Déploiement ---
+    # Récupère le profil depuis l'inventaire, ou utilise 'default' si non défini.
+    profile_name: "{{ deployment_profile | default('default') }}"
+    # Construit le chemin du dossier de configuration source basé sur le profil.
+    source_config_dir: "{{ playbook_dir }}/deploy/{{ profile_name }}"
+    # Définit les chemins source dynamiquement.
+    source_nodered_dir: "{{ source_config_dir }}/nodered"
+    source_grafana_dir: "{{ source_config_dir }}/grafana"
+    source_postgres_dir: "{{ source_config_dir }}/postgres"
+    source_ignition_dir: "{{ source_config_dir }}/ignition"
+
+    # Noms des conteneurs Podman sur la machine cible
+    nodered_container_name: "nodered"
+    grafana_container_name: "grafana"
+    postgres_container_name: "postgres" # Nom du conteneur PostgreSQL
+    ignition_container_name: "ignition"
+
+    postgres_password: "hai1@"  # Mot de passe pour l'utilisateur postgres
+
+    # Liste des bases de données à créer, basée sur votre flows.json
+    postgres_databases:
+      - "DB-Exemple"
+
+    # --- VARIABLES DE DESTINATION ---
+    # Le chemin de base sera construit dynamiquement, ex: /etc/hai-gnsa-ai
+    dest_base_dir: "/etc/hai-pxxx-ai"
+
+  pre_tasks:
+    - name: "Vérifier que le dossier de configuration source '{{ profile_name }}' existe"
+      ansible.builtin.stat:
+        path: "{{ source_config_dir }}"
+      register: config_dir_stat
+      delegate_to: localhost
+
+    - name: "Échouer si le dossier de configuration '{{ profile_name }}' n'est pas trouvé"
+      ansible.builtin.fail:
+        msg: "Le dossier de configuration '{{ source_config_dir }}' n'a pas été trouvé. Veuillez le créer ou vérifier le nom du profil dans l'inventaire."
+      when: not config_dir_stat.stat.exists
+
+  roles:
+    - role: deploy_monitoring
+    - role: create_services
+    - role: provision_database
+
+  post_tasks:
+    - name: "Inspecter le volume Node-RED pour obtenir son chemin de montage"
+      ansible.builtin.command: "podman volume inspect v_{{ nodered_container_name }}"
+      register: nodered_volume_inspect
+      changed_when: false
+      become: true
+
+    - name: "Provisionner le volume Node-RED avec les fichiers du profil"
+      ansible.posix.synchronize:
+        src: "{{ source_nodered_dir }}/"
+        dest: "{{ (nodered_volume_inspect.stdout | from_json)[0].Mountpoint }}/"
+        archive: yes
+        rsync_opts:
+          - "--exclude=node_modules"
+      become: true
+    
+    - name: Installer les dépendances Node-RED dans le conteneur
+      ansible.builtin.command:
+        cmd: podman exec {{ nodered_container_name }} npm install --prefix /data
+      become: true
+      changed_when: true # Marque la tâche comme ayant effectué un changement
+      notify: Restart Node-RED
+
+    - name: "Inspecter le volume Ignition pour obtenir son chemin de montage"
+      ansible.builtin.command: "podman volume inspect v_{{ ignition_container_name }}"
+      register: ignition_volume_inspect
+      changed_when: false
+      become: true
+
+    - name: "Provisionner le volume Ignition avec les fichiers du profil"
+      ansible.posix.synchronize:
+        src: "{{ source_ignition_dir }}/"
+        dest: "{{ (ignition_volume_inspect.stdout | from_json)[0].Mountpoint }}/"
+        archive: yes
+      become: true
+      notify: Restart Ignition
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      become: true
+
+    - name: Restart Node-RED
+      ansible.builtin.systemd:
+        name: container-nodered
+        state: restarted
+      become: true
+
+    - name: Restart Grafana
+      ansible.builtin.systemd:
+        name: container-grafana
+        state: restarted
+      become: true
+
+    - name: Restart Ignition
+      ansible.builtin.systemd:
+        name: "container-{{ ignition_container_name }}"
+        state: restarted
+      become: true

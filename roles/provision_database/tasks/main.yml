@@ -1,0 +1,51 @@
+# /roles/provision_database/tasks/main.yml
+---
+- name: Collecter les informations sur les services
+  ansible.builtin.service_facts:
+  register: service_facts_for_db
+  become: true
+
+- name: Provisionner les bases de données si le conteneur est actif
+  block:
+    - name: Créer le répertoire de destination pour le script SQL
+      ansible.builtin.file:
+        path: "{{ dest_base_dir }}/postgres"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copier le script de schéma SQL sur la machine cible
+      ansible.builtin.copy:
+        src: "{{ source_postgres_dir }}/schema.sql"
+        dest: "{{ dest_base_dir }}/postgres/schema.sql"
+
+    - name: Vérifier si les bases de données existent
+      ansible.builtin.command:
+        cmd: "podman exec {{ postgres_container_name }} psql -U postgres -lqt"
+      register: db_list
+      changed_when: false
+
+    - name: Créer les bases de données si elles n'existent pas
+      ansible.builtin.command:
+        cmd: "podman exec {{ postgres_container_name }} createdb -U postgres {{ item }}"
+      loop: "{{ postgres_databases }}"
+      when: "item not in db_list.stdout"
+
+    - name: Importer le schéma dans les bases de données
+      ansible.builtin.shell:
+        cmd: "cat {{ dest_base_dir }}/postgres/schema.sql | podman exec -i {{ postgres_container_name }} psql -U postgres -d {{ item }}"
+      loop: "{{ postgres_databases }}"
+      changed_when: true
+      args:
+        executable: /bin/bash
+
+    - name: Générer le fichier de provisioning pour les datasources Grafana
+      ansible.builtin.template:
+        src: grafana-datasources.yaml.j2
+        dest: "{{ dest_base_dir }}/grafana/provisioning/datasources/datasources.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+  become: true
+  when: "service_facts_for_db.ansible_facts.services['container-' + postgres_container_name + '.service'] is defined and service_facts_for_db.ansible_facts.services['container-' + postgres_container_name + '.service'].state == 'running'"

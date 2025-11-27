@@ -1,0 +1,20 @@
+# ansible_deployment/roles/deploy_monitoring/tasks/main.yml
+---
+- name: Copier les fichiers de configuration Node-RED (sauf node_modules)
+  ansible.posix.synchronize:
+    src: "{{ source_nodered_dir }}/"
+    dest: "{{ dest_base_dir }}/nodered/"
+    rsync_opts:
+      - "--exclude=node_modules"
+      - "--chown=root:root"
+  become: true
+
+- name: Synchroniser le répertoire de configuration de Grafana
+  ansible.posix.synchronize:
+    src: "{{ source_grafana_dir }}/"
+    dest: "{{ dest_base_dir }}/grafana/"
+    rsync_opts:
+      - "--delete"
+      - "--chown=root:root"
+  become: true
+  notify: Restart Grafana

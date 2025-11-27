@@ -1,0 +1,23 @@
+apiVersion: 1
+
+datasources:
+{% for db_name in postgres_databases %}
+  - name: {{ db_name }}
+    type: postgres
+    # Le UID doit être unique pour chaque datasource.
+    # Nous en générons un simple à partir du nom de la base.
+    uid: 'ds_{{ db_name | lower | replace("-", "_") }}'
+    url: host.containers.internal:5432
+    user: postgres
+    secureJsonData:
+      password: '{{ postgres_password }}' # Utilisation d'une variable pour le mot de passe
+    jsonData:
+      database: {{ db_name }}
+      sslmode: 'disable'
+      maxOpenConns: 100
+      maxIdleConns: 100
+      maxIdleConnsAuto: true
+      connMaxLifetime: 14400
+      postgresVersion: 903 # ou la version que vous utilisez
+      timescaledb: false
+{% endfor %}

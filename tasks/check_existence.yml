@@ -1,0 +1,59 @@
+# c:\Dev-Python\pareto-gnsa\tasks\check_existence.yml
+---
+- name: Lister tous les services systemd
+  ansible.builtin.service_facts:
+  register: service_facts
+
+- name: Lister tous les volumes podman
+  ansible.builtin.command: podman volume ls --format "{{ '{{.Name}}' }}"
+  register: podman_volumes
+  changed_when: false
+
+- name: Déterminer quels services sont actifs et doivent être gérés
+  ansible.builtin.set_fact:
+    services_to_stop_and_restart: >-
+      {{
+        services_to_stop_and_restart | default([]) +
+        [item]
+      }}
+  loop:
+    - "container-{{ nodered_container_name }}"
+    - "container-{{ grafana_container_name }}"
+    - "container-{{ ignition_container_name }}"
+    - "container-{{ pgadmin_container_name }}"
+    - "container-{{ postgres_container_name }}"
+  when: "service_facts.ansible_facts.services[item + '.service'] is defined and service_facts.ansible_facts.services[item + '.service'].state == 'running'"
+
+# - name: Vérifier si le dossier de config Node-RED existe
+#   ansible.builtin.stat:
+#     path: "{{ remote_data_base_dir }}/{{ nodered_container_name }}/"
+#   register: nodered_dir_stat
+
+- name: Vérifier si le dossier de provisioning Grafana existe
+  ansible.builtin.stat:
+    path: "{{ remote_data_base_dir }}/{{ grafana_container_name }}/"
+  register: grafana_dir_stat
+
+- name: Définir les faits d'existence
+  ansible.builtin.set_fact:
+    # nodered_dir_exists: "{{ nodered_dir_stat.stat.exists | default(false) and nodered_dir_stat.stat.isdir }}"
+    nodered_volume_exists: "{{ 'v_' + nodered_container_name in podman_volumes.stdout_lines }}"
+    grafana_dir_exists: "{{ grafana_dir_stat.stat.exists | default(false) and grafana_dir_stat.stat.isdir }}"
+    grafana_volume_exists: "{{ 'v_' + grafana_container_name in podman_volumes.stdout_lines }}"
+    ignition_volume_exists: "{{ 'v_' + ignition_container_name in podman_volumes.stdout_lines }}"
+    pgadmin_volume_exists: "{{ 'v_' + pgadmin_container_name in podman_volumes.stdout_lines }}"
+    postgres_volume_exists: "{{ 'v_' + postgres_container_name in podman_volumes.stdout_lines }}"
+
+- name: Afficher les composants trouvés (pour le débogage)
+  ansible.builtin.debug:
+    msg:
+      - "Services à redémarrer: {{ services_to_stop_and_restart | default('Aucun') }}"
+      # - "Dossier Node-RED existe: {{ nodered_dir_exists }}"
+      - "Volume Node-RED existe: {{ nodered_volume_exists }}"
+      - "Dossier Grafana existe: {{ grafana_dir_exists }}"
+      - "Volume Grafana existe: {{ grafana_volume_exists }}"
+      - "Volume Ignition existe: {{ ignition_volume_exists }}"
+      - "Volume pgAdmin existe: {{ pgadmin_volume_exists }}"
+      - "Volume PostgreSQL existe: {{ postgres_volume_exists }}"
+
+...

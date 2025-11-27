@@ -1,0 +1,184 @@
+# c:\Dev-Python\pareto-gnsa\backup_playbook.yml
+---
+# ==============================================================================
+# ==                               AVERTISSEMENT                               ==
+# ==============================================================================
+# Cet outil est fourni gratuitement et en tant que logiciel open-source.
+# L'utilisateur est entièrement responsable de tester et de valider son
+# fonctionnement avant de l'utiliser dans un environnement de production.
+# L'auteur ou les contributeurs ne peuvent être tenus responsables de toute
+# perte de données, interruption de service ou autre dommage potentiel.
+- name: Sauvegarder la configuration et les données
+  hosts: industrial_pcs
+  gather_facts: true
+  become: true
+
+  vars:
+    # --- CONFIGURATION ---
+    # Noms des conteneurs sur la machine cible
+    nodered_container_name: "nodered"
+    grafana_container_name: "grafana"
+    postgres_container_name: "postgres"
+    ignition_container_name: "ignition"
+    pgadmin_container_name: "pgadmin"
+
+    # Chemin de base où les données sont stockées sur la machine cible
+    # (Doit correspondre à la variable 'dest_base_dir' de votre playbook de déploiement)
+    remote_data_base_dir: "/etc/hai-pxxx-ai"
+
+    # Mettre à 'true' pour sauvegarder le volume complet de PostgreSQL au lieu d'un simple dump du schéma.
+    # Peut être surchargé via la ligne de commande : -e "backup_postgres_volume=true"
+    backup_postgres_volume: false
+
+    # Répertoire sur votre PC pour stocker les sauvegardes
+    local_backup_dir: "{{ playbook_dir }}/backups"
+
+    # --- VARIABLES INTERNES (ne pas modifier) ---
+    backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+    remote_backup_dir_path: "" # Sera défini dynamiquement
+    archive_name: "backup-{{ inventory_hostname }}-{{ backup_timestamp }}.zip"
+
+  tasks:
+    - name: 1. Créer un répertoire de sauvegarde temporaire sur la machine distante
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: backup
+      register: remote_backup_dir
+
+    - name: Définir le chemin du répertoire de sauvegarde
+      ansible.builtin.set_fact:
+        remote_backup_dir_path: "{{ remote_backup_dir.path }}"
+
+    # Le bloc 'block' exécute les tâches de sauvegarde.
+    # Le bloc 'always' garantit que les services sont redémarrés même si une tâche du 'block' échoue.
+    - name: Exécuter la sauvegarde et garantir le redémarrage
+      block:
+        - name: "Vérifier l'état des services, volumes et dossiers"
+          ansible.builtin.include_tasks: tasks/check_existence.yml
+
+        - name: 2. Arrêter les services pour une sauvegarde sûre
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - "container-{{ nodered_container_name }}"
+            - "container-{{ grafana_container_name }}"
+            - "container-{{ ignition_container_name }}"
+            - "container-{{ pgadmin_container_name }}"
+            - "container-{{ postgres_container_name }}"
+          when:
+            - item in (services_to_stop_and_restart | default([]))
+            # Ne pas arrêter postgres si on fait un dump, car le conteneur doit être actif pour pg_dump
+            - not (item == 'container-' + postgres_container_name and not (backup_postgres_volume | bool))
+          loop_control:
+            label: "{{ item }}"
+
+        - name: 3. Sauvegarder le schéma des bases de données PostgreSQL (si pas de sauvegarde de volume)
+          block:
+            - name: Lister les bases de données à sauvegarder
+              ansible.builtin.command: >
+                podman exec {{ postgres_container_name }} psql -U postgres -t -c "SELECT datname FROM pg_database WHERE NOT datistemplate AND datname <> 'postgres';"
+              register: db_list
+              changed_when: false
+              when: not (backup_postgres_volume | bool)
+
+            - name: Créer un dump pour chaque base de données
+              ansible.builtin.command: >
+                podman exec {{ postgres_container_name }} pg_dump -U postgres -d {{ item }} --schema-only -f /tmp/{{ item }}.sql
+              loop: "{{ db_list.stdout_lines | map('trim') | list }}"
+              when: not (backup_postgres_volume | bool) and item != ""
+
+            - name: Copier les dumps depuis le conteneur vers l'hôte
+              ansible.builtin.command: >
+                podman cp {{ postgres_container_name }}:/tmp/{{ item }}.sql {{ remote_backup_dir_path }}/{{ item }}.sql
+              loop: "{{ db_list.stdout_lines | map('trim') | list }}"
+              when: not (backup_postgres_volume | bool) and item != ""
+
+            - name: Nettoyer les dumps dans le conteneur
+              ansible.builtin.command: >
+                podman exec {{ postgres_container_name }} rm /tmp/{{ item }}.sql
+              loop: "{{ db_list.stdout_lines | map('trim') | list }}"
+              when: 
+                - not (backup_postgres_volume | bool)
+                - item != ""
+          when: 
+            - "'container-postgres' in (services_to_stop_and_restart | default([]))"
+
+        - name: 4a. Sauvegarder le volume nommé de Node-RED
+          ansible.builtin.shell:
+            cmd: "podman volume export v_{{ nodered_container_name }} > {{ remote_backup_dir_path }}/v_{{ nodered_container_name }}.tar"
+          when: nodered_volume_exists
+
+        - name: 4b. Sauvegarder le volume nommé de Grafana
+          ansible.builtin.shell:
+            cmd: "podman volume export v_{{ grafana_container_name }} > {{ remote_backup_dir_path }}/v_{{ grafana_container_name }}.tar"
+          when: grafana_volume_exists
+
+        - name: 4c. Sauvegarder le dossier de provisioning Grafana
+          ansible.builtin.copy:
+            src: "{{ remote_data_base_dir }}/{{ grafana_container_name }}/"
+            dest: "{{ remote_backup_dir_path }}/{{ grafana_container_name }}/"
+            remote_src: true
+          when: grafana_dir_exists
+
+        - name: 4d. Sauvegarder le volume nommé d'Ignition
+          ansible.builtin.shell:
+            cmd: "podman volume export v_{{ ignition_container_name }} > {{ remote_backup_dir_path }}/v_{{ ignition_container_name }}.tar"
+          when: ignition_volume_exists
+
+        - name: 4e. Sauvegarder le volume nommé de pgAdmin
+          ansible.builtin.shell:
+            cmd: "podman volume export v_{{ pgadmin_container_name }} > {{ remote_backup_dir_path }}/v_{{ pgadmin_container_name }}.tar"
+          when: pgadmin_volume_exists
+
+        - name: 4f. Sauvegarder le volume PostgreSQL (si l'option est activée)
+          ansible.builtin.shell:
+            cmd: "podman volume export v_{{ postgres_container_name }} > {{ remote_backup_dir_path }}/v_{{ postgres_container_name }}.tar"
+          when:
+            - backup_postgres_volume | bool
+            - postgres_volume_exists
+
+        - name: 5. Créer une archive ZIP de la sauvegarde
+          ansible.builtin.archive:
+            path: "{{ remote_backup_dir_path }}/*"
+            dest: "/tmp/{{ archive_name }}"
+            format: zip
+
+      always:
+        - name: Pause pour assurer la libération des ressources
+          ansible.builtin.pause:
+            seconds: 5
+
+        - name: 6. Redémarrer les services
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: started
+          loop:
+            - "container-{{ nodered_container_name }}"
+            - "container-{{ grafana_container_name }}"
+            - "container-{{ ignition_container_name }}"
+            - "container-{{ pgadmin_container_name }}"
+            - "container-{{ postgres_container_name }}"
+          when:
+            - item in (services_to_stop_and_restart | default([]))
+            # Ne pas redémarrer postgres s'il n'a pas été arrêté (cas du dump)
+            - not (item == 'container-' + postgres_container_name and not (backup_postgres_volume | bool))
+          loop_control:
+            label: "{{ item }}"
+
+  post_tasks:
+    - name: 7. Télécharger l'archive de sauvegarde sur le PC local
+      ansible.builtin.fetch:
+        src: "/tmp/{{ archive_name }}"
+        dest: "{{ local_backup_dir }}/"
+        flat: yes
+
+    - name: 8. Nettoyer les fichiers temporaires sur la machine distante
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ remote_backup_dir_path }}"
+        - "/tmp/{{ archive_name }}"
+
+...

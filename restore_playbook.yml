@@ -1,0 +1,233 @@
+# c:\Dev-Python\pareto-gnsa\restore_playbook.yml
+---
+# ==============================================================================
+# ==                               AVERTISSEMENT                               ==
+# ==============================================================================
+# Cet outil est fourni gratuitement et en tant que logiciel open-source.
+# L'utilisateur est entièrement responsable de tester et de valider son
+# fonctionnement avant de l'utiliser dans un environnement de production.
+# L'auteur ou les contributeurs ne peuvent être tenus responsables de toute
+# perte de données, interruption de service ou autre dommage potentiel.
+- name: Restaurer la configuration et les données depuis une sauvegarde
+  hosts: industrial_pcs
+  gather_facts: true
+  become: true
+
+  vars:
+    # --- CONFIGURATION ---
+    # Noms des conteneurs sur la machine cible
+    nodered_container_name: "nodered"
+    grafana_container_name: "grafana"
+    postgres_container_name: "postgres"
+    ignition_container_name: "ignition"
+    pgadmin_container_name: "pgadmin"
+
+    # Chemin de base où les données sont stockées sur la machine cible
+    remote_data_base_dir: "/etc/hai-pxxx-ai"
+
+    # Répertoire sur votre PC où sont stockées les sauvegardes
+    local_backup_dir: "{{ playbook_dir }}/backups"
+
+    # --- VARIABLES INTERNES (ne pas modifier) ---
+    remote_restore_dir_path: "" # Sera défini dynamiquement
+
+  tasks:
+    - name: 1. Vérifier que la variable 'backup_file' est fournie
+      ansible.builtin.fail:
+        msg: "Vous devez spécifier le fichier de sauvegarde à restaurer. Utilisez '-e \"backup_file=nom_de_votre_backup.zip\"'"
+      when: backup_file is not defined or backup_file == "" or backup_file | regex_search('^backup-(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})-.*\\.zip$') is none
+
+    - name: Extraire l'adresse IP de la sauvegarde du nom du fichier
+      ansible.builtin.set_fact:
+        target_ip_from_backup: "{{ backup_file | regex_search('^backup-(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})-.*\\.zip$', '\\1') | first }}"
+
+    - name: Vérifier que le playbook est exécuté sur une seule cible
+      ansible.builtin.fail:
+        msg: "Ce playbook ne doit être exécuté que sur une seule cible à la fois pour éviter la corruption des données. Utilisez '--limit {{ target_ip_from_backup }}'."
+      run_once: true
+      when: ansible_play_hosts_all | length > 1
+
+    - name: Vérifier que la cible actuelle correspond à l'IP de la sauvegarde
+      ansible.builtin.fail:
+        msg: "L'adresse IP de la cible actuelle ({{ inventory_hostname }}) ne correspond pas à l'adresse IP dans le nom du fichier de sauvegarde ({{ target_ip_from_backup }}). Veuillez utiliser '--limit {{ target_ip_from_backup }}'."
+      when: inventory_hostname != target_ip_from_backup
+
+    - name: Afficher l'IP cible de la restauration
+      ansible.builtin.debug:
+        msg: "Restauration de la sauvegarde pour l'IP : {{ target_ip_from_backup }}"
+      run_once: true
+
+    - name: 2. Créer un répertoire de restauration temporaire sur la machine distante
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: restore
+      register: remote_restore_dir
+
+    - name: Définir le chemin du répertoire de restauration
+      ansible.builtin.set_fact:
+        remote_restore_dir_path: "{{ remote_restore_dir.path }}"
+
+    - name: 3. Téléverser l'archive de sauvegarde sur la machine distante
+      ansible.builtin.copy:
+        src: "{{ local_backup_dir }}/{{ backup_file }}"
+        dest: "{{ remote_restore_dir_path }}/{{ backup_file }}"
+
+    - name: 4. Extraire l'archive de sauvegarde
+      ansible.builtin.unarchive:
+        src: "{{ remote_restore_dir_path }}/{{ backup_file }}"
+        dest: "{{ remote_restore_dir_path }}"
+        remote_src: true
+      when: inventory_hostname == target_ip_from_backup
+
+    # Le bloc 'block' exécute les tâches de restauration.
+    # Le bloc 'always' garantit que les services sont redémarrés même si une tâche échoue.
+    - name: Exécuter la restauration et garantir le redémarrage
+      block:
+        - name: Lister tous les services systemd existants
+          ansible.builtin.service_facts:
+          when: inventory_hostname == target_ip_from_backup
+          register: service_facts
+
+        - name: Déterminer quels services sont actifs et doivent être gérés
+          ansible.builtin.set_fact:
+            services_to_stop_and_restart: >-
+              {{
+                services_to_stop_and_restart | default([]) +
+                [item]
+              }}
+          loop:
+            - "container-{{ nodered_container_name }}"
+            - "container-{{ grafana_container_name }}"
+            - "container-{{ ignition_container_name }}"
+            - "container-{{ pgadmin_container_name }}"
+            - "container-{{ postgres_container_name }}"
+          when: "service_facts.ansible_facts.services[item + '.service'] is defined and service_facts.ansible_facts.services[item + '.service'].state == 'running'"
+          delegate_to: localhost # Cette tâche peut être exécutée localement pour construire la liste
+
+        - name: 5. Analyser le contenu de la sauvegarde (lister les fichiers et dossiers)
+          ansible.builtin.find:
+            paths: "{{ remote_restore_dir_path }}"
+            patterns: "*.tar,*.sql,{{ grafana_container_name }}"
+            file_type: any
+            recurse: no
+          register: backup_contents
+          when: inventory_hostname == target_ip_from_backup
+
+        - name: 5b. Afficher les composants trouvés dans la sauvegarde
+          ansible.builtin.debug:
+            msg: "Composants trouvés : {{ backup_contents.files | map(attribute='path') | map('basename') | list }}"
+          when: inventory_hostname == target_ip_from_backup
+
+        - name: 5c. Définir la liste des volumes à restaurer
+          ansible.builtin.set_fact:
+            volumes_to_restore: "{{ backup_contents.files | selectattr('path', 'match', '.*\\.tar$') | map(attribute='path') | map('basename') | list }}"
+            dump_files: "{{ backup_contents.files | selectattr('path', 'match', '.*\\.sql$') | list }}"
+            grafana_dir_exists: "{{ backup_contents.files | selectattr('path', 'match', '.*' + grafana_container_name + '$') | selectattr('isdir') | list | length > 0 }}"
+          when: inventory_hostname == target_ip_from_backup
+
+        - name: 6. Arrêter tous les services concernés
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop: "{{ services_to_stop_and_restart | default([]) }}"
+          when:
+            - inventory_hostname == target_ip_from_backup
+            # Ne pas arrêter postgres si on restaure un dump SQL (pas de volume .tar)
+            - not (item == 'container-' + postgres_container_name and 'v_' + postgres_container_name + '.tar' not in (volumes_to_restore | default([])))
+
+        - name: 7. Nettoyer les anciens dossiers de configuration
+          ansible.builtin.file:
+            path: "{{ remote_data_base_dir }}/{{ item }}/"
+            state: absent
+          loop:
+            - "{{ grafana_container_name }}"
+          when: inventory_hostname == target_ip_from_backup
+
+        - name: 8. Restaurer les volumes depuis les archives .tar
+          ansible.builtin.shell:
+            cmd: |
+              podman volume rm -f {{ item | replace('.tar', '') }} --ignore
+              podman volume create {{ item | replace('.tar', '') }}
+              podman volume import {{ item | replace('.tar', '') }} - < "{{ remote_restore_dir_path }}/{{ item }}"
+          loop: "{{ volumes_to_restore }}"
+          loop_control:
+            label: "{{ item }}"
+          when: inventory_hostname == target_ip_from_backup and volumes_to_restore is defined
+
+        - name: 9. Restaurer les bases de données (si aucun volume postgres n'a été restauré)
+          when:
+            - "'v_' + postgres_container_name + '.tar' not in (volumes_to_restore | default([]))"
+            - "'container-' + postgres_container_name in (services_to_stop_and_restart | default([]))"
+          block:
+            - name: "9a. Copier les dumps dans le conteneur"
+              ansible.builtin.command: "podman cp {{ item.path }} {{ postgres_container_name }}:/tmp/{{ item.path | basename }}" # noqa: command-instead-of-module
+              loop: "{{ dump_files | default([]) }}"
+              loop_control:
+                label: "{{ item.path | basename }}"
+
+            - name: "9b. Supprimer et recréer les bases de données"
+              ansible.builtin.shell: |
+                podman exec {{ postgres_container_name }} psql -U postgres -c 'DROP DATABASE IF EXISTS "{{ item.path | basename | regex_replace('\\.sql$', '') }}";'
+                podman exec {{ postgres_container_name }} psql -U postgres -c 'CREATE DATABASE "{{ item.path | basename | regex_replace('\\.sql$', '') }}";'
+              loop: "{{ dump_files | default([]) }}"
+              loop_control:
+                label: "{{ item.path | basename | regex_replace('\\.sql$', '') }}"
+
+            - name: "9c. Restaurer les bases de données depuis les dumps"
+              ansible.builtin.command: "podman exec {{ postgres_container_name }} psql -U postgres -d \"{{ item.path | basename | regex_replace('\\.sql$', '') }}\" -f /tmp/{{ item.path | basename }}" # noqa: command-instead-of-module
+              loop: "{{ dump_files | default([]) }}"
+              loop_control:
+                label: "{{ item.path | basename | regex_replace('\\.sql$', '') }}"
+
+            - name: "9d. Nettoyer les dumps dans le conteneur"
+              ansible.builtin.command: "podman exec {{ postgres_container_name }} rm /tmp/{{ item.path | basename }}" # noqa: command-instead-of-module
+              loop: "{{ dump_files | default([]) }}"
+              loop_control:
+                label: "{{ item.path | basename }}"
+        
+        # La restauration des dossiers de configuration (tâche 10) n'est plus nécessaire pour Node-RED.
+        # La restauration du volume à l'étape 8 s'en charge.
+        # La tâche est conservée uniquement pour Grafana si besoin, mais la logique de volume est prioritaire.
+        - name: 10. Restaurer le dossier de provisioning Grafana (si présent dans la sauvegarde)
+          ansible.builtin.copy:
+            src: "{{ remote_restore_dir_path }}/{{ grafana_container_name }}/"
+            dest: "{{ remote_data_base_dir }}/{{ grafana_container_name }}/"
+            remote_src: true
+            owner: root
+            group: root
+            mode: '0755'
+          when: grafana_dir_exists | default(false)
+
+
+      always:
+        - name: 11a. Redémarrer le service PostgreSQL en premier
+          ansible.builtin.systemd:
+            name: "container-{{ postgres_container_name }}"
+            state: started
+          when: "'container-' + postgres_container_name in (services_to_stop_and_restart | default([]))"
+
+        - name: 11b. Attendre que le port PostgreSQL soit disponible
+          ansible.builtin.wait_for:
+            port: 5432
+            host: 127.0.0.1
+            delay: 5
+            timeout: 60
+          when: "'container-' + postgres_container_name in (services_to_stop_and_restart | default([]))"
+
+        - name: 11c. Redémarrer les autres services
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: started
+          loop: "{{ services_to_stop_and_restart | default([]) | reject('equalto', 'container-' + postgres_container_name) | list }}"
+          loop_control:
+            label: "{{ item }}"
+          when: item in (services_to_stop_and_restart | default([]))
+
+
+  post_tasks:
+    - name: 12. Nettoyer les fichiers temporaires sur la machine distante
+      ansible.builtin.file:
+        path: "{{ remote_restore_dir_path }}"
+        state: absent
+
+...

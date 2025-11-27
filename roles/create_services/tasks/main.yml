@@ -1,0 +1,19 @@
+# c:\Dev-Python\pareto-gnsa\roles\create_services\tasks\main.yml
+---
+- name: Collecter les informations sur les services
+  ansible.builtin.service_facts:
+
+- name: Recharger le démon systemd pour prendre en compte les changements
+  ansible.builtin.systemd:
+    daemon_reload: yes
+  become: true
+
+- name: Attendre que le port PostgreSQL soit disponible
+  ansible.builtin.wait_for:
+    port: 5432
+    host: 127.0.0.1
+    delay: 5
+    timeout: 60
+  when: "ansible_facts.services['container-' + postgres_container_name + '.service'] is defined and ansible_facts.services['container-' + postgres_container_name + '.service'].state == 'running'"
+
+...

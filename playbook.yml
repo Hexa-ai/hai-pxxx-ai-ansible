@@ -1,0 +1,66 @@
+# ansible_deployment/playbook.yml
+---
+- name: Déployer la configuration de monitoring
+  hosts: industrial_pcs
+  gather_facts: true
+
+  vars:
+
+    # Chemins source sur votre machine locale (où ce playbook est exécuté)
+    # Assurez-vous que ces chemins sont corrects.
+    source_nodered_dir: "{{ playbook_dir }}/nodered"
+    source_grafana_dir: "{{ playbook_dir }}/grafana"
+
+    # Noms des conteneurs Podman sur la machine cible
+    nodered_container_name: "nodered"
+    grafana_container_name: "grafana"
+    postgres_container_name: "postgres" # Nom du conteneur PostgreSQL
+
+    postgres_password: "hai1@"  # Mot de passe pour l'utilisateur postgres
+
+    # Liste des bases de données à créer, basée sur votre flows.json
+    postgres_databases:
+      - "GNSA-OEE-69771"
+      - "GNSA-OEE-69774"
+      - "GNSA-OEE-69775"
+      - "GNSA-OEE-69776"
+      - "GNSA-OEE-69777"
+
+    # --- VARIABLES DE DESTINATION ---
+    # Le chemin de base sera construit dynamiquement, ex: /etc/hai-gnsa-ai
+    dest_base_dir: "/etc/hai-pxxx-ai"
+
+  roles:
+    - role: deploy_monitoring
+    - role: create_services
+    - role: provision_database
+
+  post_tasks:
+    - name: Collecter les informations sur les services
+      ansible.builtin.service_facts:
+
+    - name: Installer les dépendances Node-RED dans le conteneur
+      ansible.builtin.command:
+        cmd: podman exec {{ nodered_container_name }} npm install --prefix /data
+      become: true
+      changed_when: true # Marque la tâche comme ayant effectué un changement
+      notify: Restart Node-RED
+      when: "ansible_facts.services['container-' + nodered_container_name + '.service'] is defined and ansible_facts.services['container-' + nodered_container_name + '.service'].state == 'running'"
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      become: true
+
+    - name: Restart Node-RED
+      ansible.builtin.systemd:
+        name: container-nodered
+        state: restarted
+      become: true
+
+    - name: Restart Grafana
+      ansible.builtin.systemd:
+        name: container-grafana
+        state: restarted
+      become: true

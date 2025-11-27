@@ -1,0 +1,457 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Generic dashboard built according to the category of variables recorded by the DataPlug for the measurement category",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 2,
+  "id": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "displayName": "${__field.labels.channel_name} (${__field.labels.unit})",
+          "fieldMinMax": true,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "maxDataPoints": 10000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+          },
+          "queryText": "SELECT\n  -- Sélectionne le premier timestamp (en s) de chaque minute\n  MIN(all_data.timestamp / 1000) as ts,\n  -- Calcule la moyenne des valeurs pour cette minute\n  AVG(all_data.value_numeric) as value_numeric,\n  all_data.channel_name,\n  -- Récupère l'unité depuis la table 'hai_vars'\n  hai_vars.unit\n\nFROM\n  -- Exécute la longue requête \"UNION ALL\" contenue dans la variable\n  (${partitions_union}) AS all_data\n\n-- Jointure GAUCHE pour récupérer l'unité associée à chaque canal\nLEFT JOIN\n  hai_vars ON all_data.channel_name = hai_vars.channel_name\n\nWHERE\n  -- Filtre sur les canaux sélectionnés dans votre variable\n  all_data.channel_name IN (${channels_1:raw})\n\nGROUP BY\n  -- Le regroupement doit maintenant inclure l'unité\n  all_data.channel_name,\n  hai_vars.unit,\n  strftime('%Y-%m-%d %H:%M', all_data.timestamp / 1000, 'unixepoch')\n\nORDER BY\n  ts ASC;",
+          "queryType": "time series",
+          "rawQueryText": "SELECT\n  -- Sélectionne le premier timestamp (en s) de chaque minute\n  MIN(all_data.timestamp / 1000) as ts,\n  -- Calcule la moyenne des valeurs pour cette minute\n  AVG(all_data.value_numeric) as value_numeric,\n  all_data.channel_name,\n  -- Récupère l'unité depuis la table 'hai_vars'\n  hai_vars.unit\n\nFROM\n  -- Exécute la longue requête \"UNION ALL\" contenue dans la variable\n  (${partitions_union}) AS all_data\n\n-- Jointure GAUCHE pour récupérer l'unité associée à chaque canal\nLEFT JOIN\n  hai_vars ON all_data.channel_name = hai_vars.channel_name\n\nWHERE\n  -- Filtre sur les canaux sélectionnés dans votre variable\n  all_data.channel_name IN (${channels_1:raw})\n\nGROUP BY\n  -- Le regroupement doit maintenant inclure l'unité\n  all_data.channel_name,\n  hai_vars.unit,\n  strftime('%Y-%m-%d %H:%M', all_data.timestamp / 1000, 'unixepoch')\n\nORDER BY\n  ts ASC;",
+          "refId": "A",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "title": "Main measurement pannel",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-BlYlRd"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 35,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineStyle": {
+              "fill": "solid"
+            },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "displayName": "${__field.labels.channel_name}",
+          "fieldMinMax": true,
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+          },
+          "queryText": "-- Étape 1 : Utiliser une CTE pour numéroter les lignes dans chaque minute\nWITH NumberedData AS (\n  SELECT\n    timestamp,\n    value_numeric,\n    channel_name,\n    -- On numérote chaque ligne. La plus récente (ORDER BY timestamp DESC) reçoit le numéro 1.\n    -- La numérotation est redémarrée pour chaque canal et chaque minute (PARTITION BY).\n    ROW_NUMBER() OVER (\n      PARTITION BY\n        channel_name,\n        strftime('%Y-%m-%d %H:%M', timestamp / 1000, 'unixepoch')\n      ORDER BY\n        timestamp DESC\n    ) as row_num\n  FROM\n    (${partitions_union})\n  WHERE\n    channel_name IN (${state_channels:raw})\n)\n-- Étape 2 : Sélectionner uniquement les lignes numérotées 1 (les dernières)\nSELECT\n  nd.timestamp / 1000 as ts,\n  nd.value_numeric,\n  nd.channel_name,\n  hai_vars.unit\nFROM\n  NumberedData AS nd\n  -- On fait la jointure ici, sur le jeu de données déjà filtré\n  LEFT JOIN hai_vars ON nd.channel_name = hai_vars.channel_name\nWHERE\n  nd.row_num = 1 -- C'est ici que la magie opère : on ne garde que la dernière entrée de chaque minute\nORDER BY\n  ts ASC;",
+          "queryType": "time series",
+          "rawQueryText": "-- Étape 1 : Utiliser une CTE pour numéroter les lignes dans chaque minute\nWITH NumberedData AS (\n  SELECT\n    timestamp,\n    value_numeric,\n    channel_name,\n    -- On numérote chaque ligne. La plus récente (ORDER BY timestamp DESC) reçoit le numéro 1.\n    -- La numérotation est redémarrée pour chaque canal et chaque minute (PARTITION BY).\n    ROW_NUMBER() OVER (\n      PARTITION BY\n        channel_name,\n        strftime('%Y-%m-%d %H:%M', timestamp / 1000, 'unixepoch')\n      ORDER BY\n        timestamp DESC\n    ) as row_num\n  FROM\n    (${partitions_union})\n  WHERE\n    channel_name IN (${state_channels:raw})\n)\n-- Étape 2 : Sélectionner uniquement les lignes numérotées 1 (les dernières)\nSELECT\n  nd.timestamp / 1000 as ts,\n  nd.value_numeric,\n  nd.channel_name,\n  hai_vars.unit\nFROM\n  NumberedData AS nd\n  -- On fait la jointure ici, sur le jeu de données déjà filtré\n  LEFT JOIN hai_vars ON nd.channel_name = hai_vars.channel_name\nWHERE\n  nd.row_num = 1 -- C'est ici que la magie opère : on ne garde que la dernière entrée de chaque minute\nORDER BY\n  ts ASC;",
+          "refId": "A",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "title": "State pannel",
+      "transformations": [],
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "displayName": "${__field.labels.channel_name} (${__field.labels.unit})",
+          "fieldMinMax": true,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "id": 2,
+      "maxPerRow": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "repeat": "channels_2",
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+          },
+          "queryText": "SELECT\n  -- Sélectionne le premier timestamp (en s) de chaque minute\n  MIN(all_data.timestamp / 1000) as ts,\n  -- Calcule la moyenne des valeurs pour cette minute\n  AVG(all_data.value_numeric) as value_numeric,\n  all_data.channel_name,\n  -- Récupère l'unité depuis la table 'hai_vars'\n  hai_vars.unit\n\nFROM\n  -- Exécute la longue requête \"UNION ALL\" contenue dans la variable\n  (${partitions_union}) AS all_data\n\n-- Jointure GAUCHE pour récupérer l'unité associée à chaque canal\nLEFT JOIN\n  hai_vars ON all_data.channel_name = hai_vars.channel_name\n\nWHERE\n  -- Filtre sur les canaux sélectionnés dans votre variable\n  all_data.channel_name IN (${channels_2:raw})\n\nGROUP BY\n  -- Le regroupement doit maintenant inclure l'unité\n  all_data.channel_name,\n  hai_vars.unit,\n  strftime('%Y-%m-%d %H:%M', all_data.timestamp / 1000, 'unixepoch')\n\nORDER BY\n  ts ASC;",
+          "queryType": "time series",
+          "rawQueryText": "SELECT\n  -- Sélectionne le premier timestamp (en s) de chaque minute\n  MIN(all_data.timestamp / 1000) as ts,\n  -- Calcule la moyenne des valeurs pour cette minute\n  AVG(all_data.value_numeric) as value_numeric,\n  all_data.channel_name,\n  -- Récupère l'unité depuis la table 'hai_vars'\n  hai_vars.unit\n\nFROM\n  -- Exécute la longue requête \"UNION ALL\" contenue dans la variable\n  (${partitions_union}) AS all_data\n\n-- Jointure GAUCHE pour récupérer l'unité associée à chaque canal\nLEFT JOIN\n  hai_vars ON all_data.channel_name = hai_vars.channel_name\n\nWHERE\n  -- Filtre sur les canaux sélectionnés dans votre variable\n  all_data.channel_name IN (${channels_2:raw})\n\nGROUP BY\n  -- Le regroupement doit maintenant inclure l'unité\n  all_data.channel_name,\n  hai_vars.unit,\n  strftime('%Y-%m-%d %H:%M', all_data.timestamp / 1000, 'unixepoch')\n\nORDER BY\n  ts ASC;",
+          "refId": "A",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "title": "Optional measurement panel(s)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 38,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "SELECT timestamp, channel_name, value_numeric, value_text FROM hai_data_202510 WHERE timestamp BETWEEN 1760330073340 AND 1760416473340",
+          "value": "SELECT timestamp, channel_name, value_numeric, value_text FROM hai_data_202510 WHERE timestamp BETWEEN 1760330073340 AND 1760416473340"
+        },
+        "datasource": {
+          "type": "frser-sqlite-datasource",
+          "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+        },
+        "definition": "SELECT\n  group_concat(\n    'SELECT timestamp, channel_name, value_numeric, value_text FROM ' || partition_name ||\n    -- On injecte la clause WHERE directement dans la chaîne de caractères\n    ' WHERE timestamp BETWEEN ' || ($__from) || ' AND ' || ($__to),\n    ' UNION ALL '\n  ) AS __value\nFROM \n  hai_partitions\nWHERE\n  -- On sélectionne toujours uniquement les partitions pertinentes\n  substr(partition_name, 10, 6) -- Modifié pour hai_data_YYYYMM\n  BETWEEN strftime('%Y%m', $__from / 1000, 'unixepoch')\n  AND strftime('%Y%m', $__to / 1000, 'unixepoch');",
+        "hide": 2,
+        "includeAll": false,
+        "multi": false,
+        "name": "partitions_union",
+        "options": [],
+        "query": "SELECT\n  group_concat(\n    'SELECT timestamp, channel_name, value_numeric, value_text FROM ' || partition_name ||\n    -- On injecte la clause WHERE directement dans la chaîne de caractères\n    ' WHERE timestamp BETWEEN ' || ($__from) || ' AND ' || ($__to),\n    ' UNION ALL '\n  ) AS __value\nFROM \n  hai_partitions\nWHERE\n  -- On sélectionne toujours uniquement les partitions pertinentes\n  substr(partition_name, 10, 6) -- Modifié pour hai_data_YYYYMM\n  BETWEEN strftime('%Y%m', $__from / 1000, 'unixepoch')\n  AND strftime('%Y%m', $__to / 1000, 'unixepoch');",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "'pHIT40102'",
+          "value": "'pHIT40102'"
+        },
+        "datasource": {
+          "type": "frser-sqlite-datasource",
+          "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+        },
+        "definition": "SELECT \"'\" || channel_name || \"'\" FROM hai_vars WHERE category = 'measure'",
+        "description": "Selecting variables to display on the main panel",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Main measurement panel",
+        "multi": true,
+        "name": "channels_1",
+        "options": [],
+        "query": "SELECT \"'\" || channel_name || \"'\" FROM hai_vars WHERE category = 'measure'",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "'pHIT40102'",
+          "value": "'pHIT40102'"
+        },
+        "datasource": {
+          "type": "frser-sqlite-datasource",
+          "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+        },
+        "definition": "SELECT \"'\" || channel_name || \"'\" FROM hai_vars WHERE category = 'measure'",
+        "description": "Selecting variables to display on the second panel",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Optional measurement panel(s)",
+        "multi": true,
+        "name": "channels_2",
+        "options": [],
+        "query": "SELECT \"'\" || channel_name || \"'\" FROM hai_vars WHERE category = 'measure'",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "'P40532_Auto'",
+            "'P40532_Manu'"
+          ],
+          "value": [
+            "'P40532_Auto'",
+            "'P40532_Manu'"
+          ]
+        },
+        "datasource": {
+          "type": "frser-sqlite-datasource",
+          "uid": "c11ccb21-c212-4721-9d8f-2bed79e01fcd"
+        },
+        "definition": "SELECT \"'\" || channel_name || \"'\" FROM hai_vars WHERE category = 'state'",
+        "description": "Selecting variables to display on the second panel",
+        "hide": 0,
+        "includeAll": false,
+        "label": "State panel",
+        "multi": true,
+        "name": "state_channels",
+        "options": [],
+        "query": "SELECT \"'\" || channel_name || \"'\" FROM hai_vars WHERE category = 'state'",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Measurement",
+  "uid": "d7c3b026-c613-4372-8a7e-c9a722408918",
+  "version": 12,
+  "weekStart": ""
+}

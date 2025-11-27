@@ -1,0 +1,5 @@
+# Ignorer tous les fichiers dans le dossier backups
+backups/*
+
+# Ne pas ignorer le fichier .gitkeep pour que le dossier soit conservé
+!backups/.gitkeep

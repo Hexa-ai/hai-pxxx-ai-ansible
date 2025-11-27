@@ -1,0 +1,65 @@
+[
+    {
+        "id": "3658d6c57ad0daf0",
+        "type": "tab",
+        "label": "Exemple Flow",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "de4f3395d817fdcd",
+        "type": "inject",
+        "z": "3658d6c57ad0daf0",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 210,
+        "y": 100,
+        "wires": [
+            [
+                "a784b373097abbb6"
+            ]
+        ]
+    },
+    {
+        "id": "a784b373097abbb6",
+        "type": "debug",
+        "z": "3658d6c57ad0daf0",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 620,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "5f9dbb98e3667c36",
+        "type": "comment",
+        "z": "3658d6c57ad0daf0",
+        "name": "Node-RED Flux created as an example",
+        "info": "# Node-RED Flux created as an example",
+        "x": 250,
+        "y": 40,
+        "wires": []
+    }
+]

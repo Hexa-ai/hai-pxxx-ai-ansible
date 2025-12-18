@@ -149,6 +149,22 @@
           ansible.builtin.pause:
             seconds: 5
 
+        - name: "Garantir les permissions Grafana (Standard chown)"
+          ansible.builtin.command:
+            # On utilise directement chown car on est root via 'become: true'
+            cmd: "chown -R 472:472 {{ remote_data_base_dir }}/{{ grafana_container_name }}/"
+          become: true
+          changed_when: false
+          when: grafana_dir_exists | default(false)
+
+        - name: "Nettoyer l'état d'erreur Systemd pour Grafana"
+          ansible.builtin.command:
+            cmd: "systemctl reset-failed container-{{ grafana_container_name }}"
+          become: true
+          changed_when: false
+          ignore_errors: true
+          when: grafana_dir_exists | default(false)
+
         - name: 6. Redémarrer les services
           ansible.builtin.systemd:
             name: "{{ item }}"
@@ -165,6 +181,7 @@
             - not (item == 'container-' + postgres_container_name and not (backup_postgres_volume | bool))
           loop_control:
             label: "{{ item }}"
+          ignore_errors: true
 
   post_tasks:
     - name: 7. Télécharger l'archive de sauvegarde sur le PC local
